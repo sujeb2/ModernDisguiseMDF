@@ -5,10 +5,13 @@ import com.mojang.authlib.properties.Property;
 import dev.iiahmed.disguise.util.DefaultEntityProvider;
 import dev.iiahmed.disguise.util.DisguiseUtil;
 import dev.iiahmed.disguise.util.Version;
+import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.logging.Logger;
 
 import java.util.Map;
 import java.util.Optional;
@@ -50,7 +53,7 @@ public abstract class DisguiseProvider {
         this.nameLength = length;
         return this;
     }
-
+    
     /**
      * Sets whether ModernDisguise should check if a player with a similar name
      * is currently online before allowing a disguise. This can help prevent
@@ -134,72 +137,99 @@ public abstract class DisguiseProvider {
      * @return the response of the disguise action (like reasons of failure or so)
      * @see DisguiseProvider#undisguise(Player)
      */
-    public final @NotNull DisguiseResponse disguise(@NotNull final Player player, @NotNull final Disguise disguise) {
+   public final @NotNull DisguiseResponse disguise(@NotNull final Player player, @NotNull final Disguise disguise) {
+        final Logger logger = Bukkit.getLogger();
+        logger.info("[ModernDisguise-Debug] ----------------- Starting Disguise -----------------");
+        logger.info("[ModernDisguise-Debug] Player: " + player.getName() + " (" + player.getUniqueId() + ")");
+        logger.info("[ModernDisguise-Debug] Requested Disguise Name: " + disguise.getName());
+        logger.info("[ModernDisguise-Debug] Requested Disguise Has Skin: " + disguise.hasSkin());
+        logger.info("[ModernDisguise-Debug] Requested Disguise Has Entity: " + disguise.hasEntity());
+
         if (!isVersionSupported()) {
+            logger.warning("[ModernDisguise-Debug] Disguise FAIL: Version not supported.");
             return DisguiseResponse.FAIL_VERSION_NOT_SUPPORTED;
         }
 
         if (plugin == null || !plugin.isEnabled()) {
+            logger.warning("[ModernDisguise-Debug] Disguise FAIL: Plugin not initialized.");
             return DisguiseResponse.FAIL_PLUGIN_NOT_INITIALIZED;
         }
 
         if (disguise.isEmpty()) {
+            logger.warning("[ModernDisguise-Debug] Disguise FAIL: Disguise object is empty.");
             return DisguiseResponse.FAIL_EMPTY_DISGUISE;
         }
 
         if (disguise.hasEntity() && (!entityDisguises || !this.entityProvider.isSupported(disguise.getEntity()))) {
+            logger.warning("[ModernDisguise-Debug] Disguise failed due to entity disguises are disabled or this entity is not supported.");
             return DisguiseResponse.FAIL_ENTITY_NOT_SUPPORTED;
         }
 
         String realName = player.getName();
         String nickname = realName;
+        logger.info("[ModernDisguise-Debug] Getting player GameProfile...");
         final GameProfile profile = DisguiseUtil.getProfile(player);
         if (!player.isOnline() || profile == null) {
+            logger.warning("[ModernDisguise-Debug] Disguise failed due to destined player is offline or profile could not be found.");
             return DisguiseResponse.FAIL_PROFILE_NOT_FOUND;
         }
+        logger.info("[ModernDisguise-Debug] GameProfile found.");
 
         if (disguise.hasName() && !disguise.getName().equals(player.getName())) {
             final String name = disguise.getName();
+            logger.info("[ModernDisguise-Debug] Name change requested to: " + name);
 
             if (name.length() > nameLength) {
+                logger.warning("[ModernDisguise-Debug] Disguise failed due to provided name '" + name + "' is too long (>" + nameLength + ").");
                 return DisguiseResponse.FAIL_NAME_TOO_LONG;
             }
 
             if (!namePattern.matcher(name).matches()) {
+                logger.warning("[ModernDisguise-Debug] Disguise FAIL: Name '" + name + "' does not match pattern.");
                 return DisguiseResponse.FAIL_NAME_INVALID;
             }
 
             if (this.checkOnlineNames) {
+                logger.info("[ModernDisguise-Debug] Checking if player with name '" + name + "' is online...");
                 final Player found = DisguiseUtil.getPlayer(name);
                 if (found != null && found.isOnline()) {
+                    logger.warning("[ModernDisguise-Debug] Disguise FAIL: Player with name '" + name + "' is already online.");
                     return DisguiseResponse.FAIL_NAME_ALREADY_ONLINE;
                 }
             }
 
             nickname = name;
             try {
+                logger.info("[ModernDisguise-Debug] Setting profile name in GameProfile object and registering name with server.");
                 DisguiseUtil.PROFILE_NAME.set(profile, name);
                 DisguiseUtil.register(name, player);
             } catch (final IllegalAccessException e) {
-                // shouldn't happen
+                logger.severe("[ModernDisguise-Debug] Disguise FAIL: A reflection error occurred while changing name.");
+                e.printStackTrace();
                 return DisguiseResponse.FAIL_NAME_CHANGE_EXCEPTION;
             }
         }
 
         Skin realSkin = null;
         if (disguise.hasSkin()) {
+            logger.info("[ModernDisguise-Debug] Skin change requested. Backing up original skin...");
             final Optional<Property> optional = profile.getProperties().get("textures").stream().findFirst();
             if (optional.isPresent()) {
                 realSkin = DisguiseUtil.getSkin(optional.get());
                 profile.getProperties().removeAll("textures");
+                logger.info("[ModernDisguise-Debug] Original skin backed up. Applying new skin.");
+            } else {
+                logger.warning("[ModernDisguise-Debug] Could not find original skin property to back up.");
             }
             profile.getProperties().put("textures", new Property("textures", disguise.getTextures(), disguise.getSignature()));
         }
 
         Entity entity = disguise.getEntity();
         if (isDisguised(player)) {
+            logger.info("[ModernDisguise-Debug] Player was already disguised. Cleaning up old disguise data.");
             final PlayerInfo info = this.playerInfo.remove(player.getUniqueId());
             if (info.hasName()) {
+                logger.info("[ModernDisguise-Debug] Unregistering old nickname: " + info.getNickname());
                 DisguiseUtil.unregister(info.getNickname());
                 if (disguise.hasName()) nickname = info.getNickname();
             }
@@ -213,17 +243,11 @@ public abstract class DisguiseProvider {
             }
         }
 
-        playerInfo.put(
-                player.getUniqueId(),
-                new PlayerInfo(
-                        realName,
-                        nickname,
-                        realSkin,
-                        entity
-                )
-        );
+        logger.info("[ModernDisguise-Debug] Storing PlayerInfo. RealName: " + realName + ", Nickname: " + nickname);
+        playerInfo.put(player.getUniqueId(), new PlayerInfo(realName, nickname, realSkin, entity));
 
         if (disguise.hasName() || disguise.hasSkin()) {
+            logger.info("[ModernDisguise-Debug] Refreshing player for name/skin changes...");
             final boolean flying = player.isFlying();
             final int foodLevel = player.getFoodLevel();
             final float saturation = player.getSaturation();
@@ -236,12 +260,17 @@ public abstract class DisguiseProvider {
             player.setFoodLevel(foodLevel);
             player.setSaturation(saturation);
             player.setExhaustion(exhaustion);
+            logger.info("[ModernDisguise-Debug] Player refresh complete.");
         }
 
         if (disguise.hasEntity()) {
+            logger.info("[ModernDisguise-Debug] Refreshing player as an entity...");
             refreshAsEntity(player, true, player.getWorld().getPlayers().toArray(new Player[0]));
+            logger.info("[ModernDisguise-Debug] Entity refresh complete.");
         }
 
+        logger.info("[ModernDisguise-Debug] Disguise SUCCESS.");
+        logger.info("[ModernDisguise-Debug] ------------------ End of Disguise ------------------");
         return DisguiseResponse.SUCCESS;
     }
 
@@ -253,16 +282,26 @@ public abstract class DisguiseProvider {
      * @see DisguiseProvider#disguise(Player, Disguise)
      */
     public final @NotNull UndisguiseResponse undisguise(@NotNull final Player player) {
+        // ADDED DEBUGGING
+        final Logger logger = Bukkit.getLogger();
+        logger.info("[ModernDisguise-Debug] ---------------- Starting Undisguise ----------------");
+        logger.info("[ModernDisguise-Debug] Player: " + player.getName() + " (" + player.getUniqueId() + ")");
+
         if (!isDisguised(player)) {
+            // ADDED DEBUGGING
+            logger.warning("[ModernDisguise-Debug] Undisguise FAIL: Player is not disguised.");
             return UndisguiseResponse.FAIL_ALREADY_UNDISGUISED;
         }
 
         final GameProfile profile = DisguiseUtil.getProfile(player);
         if (profile == null) {
             if (player.isOnline()) {
-                // shouldn't happen
+                // ADDED DEBUGGING
+                logger.severe("[ModernDisguise-Debug] Undisguise FAIL: Profile not found for an ONLINE player. This is unusual.");
                 return UndisguiseResponse.FAIL_PROFILE_NOT_FOUND;
             }
+            // ADDED DEBUGGING
+            logger.info("[ModernDisguise-Debug] Player is offline, cleaning up their stored data.");
             final PlayerInfo info = this.playerInfo.remove(player.getUniqueId());
             if (info.hasName()) {
                 DisguiseUtil.unregister(info.getNickname());
@@ -272,24 +311,35 @@ public abstract class DisguiseProvider {
 
         final PlayerInfo info = this.playerInfo.get(player.getUniqueId());
         if (info.hasName()) {
+            // ADDED DEBUGGING
+            logger.info("[ModernDisguise-Debug] Restoring original name: " + info.getName());
             try {
                 DisguiseUtil.PROFILE_NAME.set(profile, info.getName());
                 DisguiseUtil.unregister(info.getNickname());
             } catch (final IllegalAccessException e) {
+                 // ADDED DEBUGGING
+                logger.severe("[ModernDisguise-Debug] Undisguise FAIL: A reflection error occurred while restoring name.");
                 return UndisguiseResponse.FAIL_NAME_CHANGE_EXCEPTION;
             }
         }
 
         if (info.hasSkin()) {
+            // ADDED DEBUGGING
+            logger.info("[ModernDisguise-Debug] Restoring original skin.");
             final Skin skin = info.getSkin();
             profile.getProperties().removeAll("textures");
             profile.getProperties().put("textures", new Property("textures", skin.getTextures(), skin.getSignature()));
         }
 
         this.playerInfo.remove(player.getUniqueId());
+        // ADDED DEBUGGING
+        logger.info("[ModernDisguise-Debug] Refreshing player to show original appearance...");
         this.refreshAsPlayer(player);
         player.teleport(player.getLocation());
 
+        // ADDED DEBUGGING
+        logger.info("[ModernDisguise-Debug] Undisguise SUCCESS.");
+        logger.info("[ModernDisguise-Debug] ----------------- End of Undisguise -----------------");
         return UndisguiseResponse.SUCCESS;
     }
 
