@@ -40,53 +40,80 @@ public final class DisguiseUtil {
     private static final Method GET_PROFILE, GET_HANDLE;
     private static final Map PLAYERS_MAP;
 
-    static {
+        static {
+        final java.util.logging.Logger logger = Bukkit.getLogger();
+
+        logger.info("[ModernDisguise-Debug] Initializing reflection for Server Version: " + Bukkit.getVersion());
         final boolean obf = Version.isOrOver(17);
         try {
+            logger.info("[ModernDisguise-Debug] Locating CraftPlayer class...");
             final Class<?> craftPlayer;
             if (Version.IS_PAPER && Version.IS_20_R4_PLUS) {
                 craftPlayer = Class.forName("org.bukkit.craftbukkit.entity.CraftPlayer");
             } else {
                 craftPlayer = Class.forName("org.bukkit.craftbukkit.v" + Version.NMS + ".entity.CraftPlayer");
             }
+            logger.info("[ModernDisguise-Debug] Found CraftPlayer: " + craftPlayer.getName());
 
             GET_PROFILE = craftPlayer.getMethod("getProfile");
             GET_HANDLE = craftPlayer.getMethod("getHandle");
             PROFILE_NAME = GameProfile.class.getDeclaredField("name");
             PROFILE_NAME.setAccessible(true);
+            
+            logger.info("[ModernDisguise-Debug] Accessing server's PlayerList...");
             final Field listFiled = Bukkit.getServer().getClass().getDeclaredField("playerList");
             listFiled.setAccessible(true);
-            final Class<?> playerListClass = Class.forName((obf ?
-                    PREFIX + "players." : PREFIX)
-                    + "PlayerList");
+            
+            final String playerListClassName = (obf ? PREFIX + "players." : PREFIX) + "PlayerList";
+            logger.info("[ModernDisguise-Debug] Locating PlayerList class: " + playerListClassName);
+            final Class<?> playerListClass = Class.forName(playerListClassName);
+            
             final Object playerList = listFiled.get(Bukkit.getServer());
-            final Field playersByName = playerListClass.getDeclaredField("playersByName");
+
+            final String playersByNameFieldName = "playersByName";
+            logger.info("[ModernDisguise-Debug] Finding field '" + playersByNameFieldName + "' in " + playerListClass.getSimpleName());
+            final Field playersByName = playerListClass.getDeclaredField(playersByNameFieldName);
             playersByName.setAccessible(true);
             PLAYERS_MAP = (Map) playersByName.get(playerList);
+            logger.info("[ModernDisguise-Debug] Successfully loaded primary features.");
+
         } catch (final Exception exception) {
+            logger.log(Level.SEVERE, "[ModernDisguise-Debug] CRITICAL FAILURE during primary feature initialization. This is likely an issue with an unsupported server fork.", exception);
             throw new RuntimeException("Failed to load ModernDisguise's primary features", exception);
         }
 
         PRIMARY = true;
         boolean injection;
         try {
-            final Class<?> entityPlayer = Class.forName(
-                    (obf ? PREFIX + "level." : PREFIX) + "EntityPlayer"
-            );
-            final Class<?> playerConnection = Class.forName(
-                    (obf ? PREFIX + "network." : PREFIX) + (Version.IS_20_R2_PLUS ? "ServerCommonPacketListenerImpl" : "PlayerConnection")
-            );
-            final Class<?> networkManager = Class.forName(
-                    (obf ? "net.minecraft.network." : PREFIX) + "NetworkManager"
-            );
+            logger.info("[ModernDisguise-Debug] Initializing secondary features (Netty injection).");
+            final String entityPlayerName = (obf ? PREFIX + "level." : PREFIX) + "EntityPlayer";
+            logger.info("[ModernDisguise-Debug] Finding EntityPlayer: " + entityPlayerName);
+            final Class<?> entityPlayer = Class.forName(entityPlayerName);
 
+            final String playerConnectionName = (obf ? PREFIX + "network." : PREFIX) + (Version.IS_20_R2_PLUS ? "ServerCommonPacketListenerImpl" : "PlayerConnection");
+            logger.info("[ModernDisguise-Debug] Finding PlayerConnection: " + playerConnectionName);
+            final Class<?> playerConnection = Class.forName(playerConnectionName);
+
+            final String networkManagerName = (obf ? "net.minecraft.network." : PREFIX) + "NetworkManager";
+            logger.info("[ModernDisguise-Debug] Finding NetworkManager: " + networkManagerName);
+            final Class<?> networkManager = Class.forName(networkManagerName);
+
+            logger.info("[ModernDisguise-Debug] Searching for PlayerConnection field in EntityPlayer...");
             CONNECTION = Reflections.getField(entityPlayer, playerConnection);
-            NETWORK_CHANNEL = Reflections.getField(networkManager, Channel.class);
+            logger.info("[ModernDisguise-Debug] Searching for NetworkManager field in PlayerConnection...");
             NETWORK_MANAGER = Reflections.getField(playerConnection, networkManager);
+            logger.info("[ModernDisguise-Debug] Searching for Channel field in NetworkManager...");
+            NETWORK_CHANNEL = Reflections.getField(networkManager, Channel.class);
+            
             injection = true;
+            logger.info("[ModernDisguise-Debug] Successfully loaded secondary features.");
         } catch (final Throwable exception) {
             injection = false;
-            Bukkit.getServer().getLogger().log(Level.SEVERE, "Failed to load ModernDisguise's secondary features (disguising as entities)", exception);
+            logger.log(Level.SEVERE, "----------------------------------------------------");
+            logger.log(Level.SEVERE, "[ModernDisguise-Debug] FAILED to load secondary features (disguising as entities).");
+            logger.log(Level.SEVERE, "This is the expected point of failure on custom server forks (Paper, Purpur, UniversalSpigot, etc.) that rename internal server fields.");
+            logger.log(Level.SEVERE, "Error details:", exception);
+            logger.log(Level.SEVERE, "----------------------------------------------------");
         }
 
         INJECTION = injection;
@@ -153,14 +180,17 @@ public final class DisguiseUtil {
      * @param player  the player getting injected into
      * @param handler the {@link ChannelHandler} injected into the channel
      */
-    public static void inject(@NotNull final Player player, @NotNull final ChannelHandler handler) {
+public static void inject(@NotNull final Player player, @NotNull final ChannelHandler handler) {
+        Bukkit.getLogger().info("[ModernDisguise-Debug] Attempting to inject channel handler for player: " + player.getName());
         final Channel ch = getChannel(player);
         if (ch == null) {
+            Bukkit.getLogger().warning("[ModernDisguise-Debug] Injection failed for " + player.getName() + " because their channel is null.");
             return;
         }
         ch.eventLoop().submit(() -> {
             if (ch.pipeline().get(HANDLER_NAME) == null) {
                 ch.pipeline().addBefore("packet_handler", HANDLER_NAME, handler);
+                Bukkit.getLogger().info("[ModernDisguise-Debug] Successfully injected handler for " + player.getName());
             }
         });
     }
@@ -171,13 +201,17 @@ public final class DisguiseUtil {
      * @param player the player getting un-injected out of
      */
     public static void uninject(@NotNull final Player player) {
+        // ADDED DEBUGGING
+        Bukkit.getLogger().info("[ModernDisguise-Debug] Attempting to uninject channel handler for player: " + player.getName());
         final Channel ch = getChannel(player);
         if (ch == null) {
+            Bukkit.getLogger().warning("[ModernDisguise-Debug] Uninjection failed for " + player.getName() + " because their channel is null.");
             return;
         }
         ch.eventLoop().submit(() -> {
             if (ch.pipeline().get(HANDLER_NAME) != null) {
                 ch.pipeline().remove(HANDLER_NAME);
+                Bukkit.getLogger().info("[ModernDisguise-Debug] Successfully uninjected handler for " + player.getName());
             }
         });
     }
@@ -192,7 +226,7 @@ public final class DisguiseUtil {
             final Object networkManager = NETWORK_MANAGER.get(connection);
             return NETWORK_CHANNEL.get(networkManager);
         } catch (final Exception exception) {
-            Bukkit.getLogger().log(Level.SEVERE, "[ModernDisguise] Couldn't hook into player: " + player.getName(), exception);
+            Bukkit.getLogger().log(Level.SEVERE, "[ModernDisguise-Debug] Couldn't get channel for player: " + player.getName(), exception);
             return null;
         }
     }
