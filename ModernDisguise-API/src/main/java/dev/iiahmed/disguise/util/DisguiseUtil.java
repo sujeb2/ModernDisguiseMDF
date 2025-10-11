@@ -111,7 +111,6 @@ public final class DisguiseUtil {
             injection = false;
             logger.log(Level.SEVERE, "----------------------------------------------------");
             logger.log(Level.SEVERE, "[ModernDisguise-Debug] FAILED to load secondary features (disguising as entities).");
-            logger.log(Level.SEVERE, "This is the expected point of failure on custom server forks (Paper, Purpur, UniversalSpigot, etc.) that rename internal server fields.");
             logger.log(Level.SEVERE, "Error details:", exception);
             logger.log(Level.SEVERE, "----------------------------------------------------");
         }
@@ -180,7 +179,7 @@ public final class DisguiseUtil {
      * @param player  the player getting injected into
      * @param handler the {@link ChannelHandler} injected into the channel
      */
-public static void inject(@NotNull final Player player, @NotNull final ChannelHandler handler) {
+    public static void inject(@NotNull final Player player, @NotNull final ChannelHandler handler) {
         Bukkit.getLogger().info("[ModernDisguise-Debug] Attempting to inject channel handler for player: " + player.getName());
         final Channel ch = getChannel(player);
         if (ch == null) {
@@ -201,7 +200,6 @@ public static void inject(@NotNull final Player player, @NotNull final ChannelHa
      * @param player the player getting un-injected out of
      */
     public static void uninject(@NotNull final Player player) {
-        // ADDED DEBUGGING
         Bukkit.getLogger().info("[ModernDisguise-Debug] Attempting to uninject channel handler for player: " + player.getName());
         final Channel ch = getChannel(player);
         if (ch == null) {
