@@ -138,7 +138,7 @@ public abstract class DisguiseProvider {
      * @see DisguiseProvider#undisguise(Player)
      */
    public final @NotNull DisguiseResponse disguise(@NotNull final Player player, @NotNull final Disguise disguise) {
-        final Logger logger = Bukkit.getLogger();
+        final Logger logger = plugin.getLogger();
         logger.info("[ModernDisguise-Debug] ----------------- Starting Disguise -----------------");
         logger.info("[ModernDisguise-Debug] Player: " + player.getName() + " (" + player.getUniqueId() + ")");
         logger.info("[ModernDisguise-Debug] Requested Disguise Name: " + disguise.getName());
