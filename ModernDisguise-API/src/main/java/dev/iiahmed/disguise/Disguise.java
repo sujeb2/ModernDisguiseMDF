@@ -4,6 +4,7 @@ import org.bukkit.entity.EntityType;
 import org.jetbrains.annotations.ApiStatus;
 
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 @SuppressWarnings("unused")
